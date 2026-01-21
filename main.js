@@ -58,15 +58,23 @@ tControls.addEventListener('dragging-changed', (e) => {
 scene.add(new THREE.GridHelper(200, 20, 0x334155, 0x1f2937));
 scene.add(new THREE.AxesHelper(30));
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+// Lights (editor-friendly)
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
 
-const dir = new THREE.DirectionalLight(0xffffff, 1.4);
-dir.position.set(80, 120, 40);
-scene.add(dir);
+// 天空光：讓陰影面也不會黑成一片（非常關鍵）
+const hemi = new THREE.HemisphereLight(0xffffff, 0x223344, 0.85);
+hemi.position.set(0, 200, 0);
+scene.add(hemi);
 
-const rim = new THREE.DirectionalLight(0xffffff, 0.6);
-rim.position.set(-60, 40, -80);
-scene.add(rim);
+// 主光：從上前方打下來
+const key = new THREE.DirectionalLight(0xffffff, 1.25);
+key.position.set(80, 140, 120);
+scene.add(key);
+
+// 補光：從另一側把暗面提亮
+const fill = new THREE.DirectionalLight(0xffffff, 0.55);
+fill.position.set(-120, 60, -80);
+scene.add(fill);
 
 /* ------------------------------
   Model root group
