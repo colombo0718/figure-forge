@@ -3,21 +3,48 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>FlexForge - John.vox viewer</title>
+  <title>FigureForge - Dev Scene</title>
+
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background:#0b0e14; }
-    #hud {
-      position: fixed; left: 12px; top: 12px;
-      padding: 10px 12px; border-radius: 10px;
-      background: rgba(0,0,0,.45); color: #fff;
+
+    /* Help panel (toggle by key) */
+    #help {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      max-width: 340px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(0,0,0,.48);
+      color: #fff;
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
-      font-size: 13px; line-height: 1.5;
+      font-size: 12.5px;
+      line-height: 1.55;
       user-select: none;
+      backdrop-filter: blur(4px);
     }
-    #hud code { background: rgba(255,255,255,.12); padding: 2px 6px; border-radius: 6px; }
+    #help .title { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    #help .title b { font-size: 13px; }
+    #help code { background: rgba(255,255,255,.12); padding: 2px 6px; border-radius: 6px; }
+    #help .muted { opacity: .8; }
+    #help .body { margin-top: 8px; }
+    #help.collapsed .body { display: none; }
+    #help .pill {
+      display:inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.12);
+      font-size: 11px;
+      opacity: .9;
+    }
+
+    /* hide file input */
+    #voxFile { display:none; }
   </style>
 
-  <!-- 讓 VOXLoader_mine_2.js 裡的 `import ... from 'three'` 找得到 three -->
+  <link rel="icon" href="data:,">
+
   <script type="importmap">
     {
       "imports": {
@@ -29,10 +56,26 @@
 </head>
 
 <body>
-  <div id="hud">
-    <div><b>FF Dev Scene</b></div>
-    <div>Loaded: <code>John.vox</code></div>
-    <div>Drag = rotate, Wheel = zoom, Right-drag = pan</div>
+  <!-- hidden file picker (triggered by shortcut) -->
+  <input id="voxFile" type="file" accept=".vox" />
+
+  <div id="help">
+    <div class="title">
+      <b>FF Dev Help</b>
+      <span class="pill">H / ?</span>
+    </div>
+
+    <div class="body">
+      <div class="muted">Loaded: <code id="loadedName">John.vox</code></div>
+      <div style="height:8px"></div>
+
+      <div><code>W</code> Move　<code>E</code> Rotate　<code>R</code> Scale</div>
+      <div><code>O</code> Open .vox　<code>Esc</code> Deselect</div>
+      <div><code>Drag</code> orbit　<code>Wheel</code> zoom　<code>Right-drag</code> pan</div>
+
+      <div style="height:8px"></div>
+      <div class="muted">Tip：選取部件會「外框描邊 + 些微提亮」</div>
+    </div>
   </div>
 
   <script type="module" src="./main.js"></script>
