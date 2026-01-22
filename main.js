@@ -1,17 +1,49 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TransformControls } from 'three/addons/controls/TransformControls.js';
+// main.js — FF 最小可用編輯器骨架（精簡版、中文註解、顏色全用 0xRRGGBB）
+//
+// 功能：
+// - 預設載入 ./John.vox
+// - O：開啟本機 .vox
+// - W/E/R：移動/旋轉/縮放（TransformControls）
+// - Esc：取消選取
+// - H / ?：顯示/隱藏左上角說明
+// - 左鍵點模型：選取部件（以 AssetRoot 直接子節點為一個「部件」）
+// - 選取效果：外框描邊(OutlinePass) + 微提亮(材質 emissive / color)
+//
+// 依賴：
+// - index.html 使用 importmap 提供 three 與 three/addons
+// - 同層：VOXLoader_mine_2.js、John.vox(可選)
 
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { TransformControls } from "three/addons/controls/TransformControls.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { OutlinePass } from "three/addons/postprocessing/OutlinePass.js";
 
-// 你的 VOX loader
-import { VOXLoader, VOXMesh } from './VOXLoader_mine_2.js';
+import { VOXLoader, VOXMesh } from "./VOXLoader_mine_2.js";
 
-/* ------------------------------
-  Renderer / Scene / Camera
------------------------------- */
+// -------------------------
+// 基本設定
+// -------------------------
+const DEFAULT_VOX_URL = "./John.vox";
+const TARGET_SIZE = 60; // 模型最大邊縮放到約 60
+
+// -------------------------
+// 顏色：全部直接用 0xRRGGBB（不做任何轉換）
+// -------------------------
+const COLOR = {
+  // 這是你一開始驗證過「網格看得到」的搭配
+  bg: 0x0b0e14,
+  gridMajor: 0xaaaaaa,
+  gridMinor: 0x888888,
+
+  // 外框藍：用兩兩重複較好讀
+  outline: 0x3388ff,
+};
+
+// -------------------------
+// Renderer / Scene / Camera
+// -------------------------
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -19,297 +51,337 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0e14);
+scene.background = new THREE.Color(COLOR.bg);
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 2000);
+const camera = new THREE.PerspectiveCamera(
+  50,
+  window.innerWidth / window.innerHeight,
+  0.01,
+  2000
+);
 camera.position.set(80, 60, 80);
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 18, 0);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+// -------------------------
+// OrbitControls（旋轉/平移/縮放視角）
+// -------------------------
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.target.set(0, 18, 0);
+orbit.enableDamping = true;
+orbit.dampingFactor = 0.08;
+orbit.update();
 
-/* ------------------------------
-  Postprocessing: Outline
------------------------------- */
+// -------------------------
+// 網格 + 座標軸（沿用你最早那套可讀性）
+// -------------------------
+scene.add(new THREE.GridHelper(200, 20, COLOR.gridMajor, COLOR.gridMinor));
+scene.add(new THREE.AxesHelper(30));
+
+// -------------------------
+// 燈光（沿用你最早那套）
+// -------------------------
+scene.add(new THREE.AmbientLight(0xffffff, 1));
+
+const dir = new THREE.DirectionalLight(0xffffff, 1.4);
+dir.position.set(80, 120, 40);
+scene.add(dir);
+
+const rim = new THREE.DirectionalLight(0xffffff, 0.6);
+rim.position.set(-60, 40, -80);
+scene.add(rim);
+
+// -------------------------
+// 後處理：Outline（外框描邊）
+// -------------------------
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 
-const outlinePass = new OutlinePass(new THREE.Vector2(window.innerWidth, window.innerHeight), scene, camera);
-outlinePass.edgeStrength = 3.2;
-outlinePass.edgeThickness = 1.0;
-outlinePass.visibleEdgeColor.set('#3b82f6'); // blue
-outlinePass.hiddenEdgeColor.set('#3b82f6');
-composer.addPass(outlinePass);
+const outline = new OutlinePass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  scene,
+  camera
+);
+outline.edgeStrength = 3.0;
+outline.edgeThickness = 1.0;
+outline.visibleEdgeColor.setHex(COLOR.outline);
+outline.hiddenEdgeColor.setHex(COLOR.outline);
+composer.addPass(outline);
 
-/* ------------------------------
-  TransformControls
------------------------------- */
-const tControls = new TransformControls(camera, renderer.domElement);
-scene.add(tControls);
+// -------------------------
+// TransformControls（W/E/R 移動/旋轉/縮放）
+// -------------------------
+const gizmo = new TransformControls(camera, renderer.domElement);
 
-tControls.addEventListener('dragging-changed', (e) => {
-  controls.enabled = !e.value;
+// 移動步進：0.1
+gizmo.setTranslationSnap(0.1);
+// 旋轉步進：5度（注意是「弧度」）
+gizmo.setRotationSnap(THREE.MathUtils.degToRad(5));
+// 縮放步進：0.1
+gizmo.setScaleSnap(0.1);
+
+scene.add(gizmo);
+
+// 拖曳 gizmo 時，暫停 orbit，避免互搶
+gizmo.addEventListener("dragging-changed", (e) => {
+  orbit.enabled = !e.value;
 });
 
-/* ------------------------------
-  Helpers / Lights
------------------------------- */
-scene.add(new THREE.GridHelper(200, 20, 0x334155, 0x1f2937));
-scene.add(new THREE.AxesHelper(30));
+// -------------------------
+// 模型根節點：所有載入的 VOX 部件都放在這下面
+// -------------------------
+const assetRoot = new THREE.Group();
+assetRoot.name = "AssetRoot";
+scene.add(assetRoot);
 
-// Lights (editor-friendly)
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+// -------------------------
+// Help 面板（簡單、可開關）
+// -------------------------
 
-// 天空光：讓陰影面也不會黑成一片（非常關鍵）
-const hemi = new THREE.HemisphereLight(0xffffff, 0x223344, 0.85);
-hemi.position.set(0, 200, 0);
-scene.add(hemi);
 
-// 主光：從上前方打下來
-const key = new THREE.DirectionalLight(0xffffff, 1.25);
-key.position.set(80, 140, 120);
-scene.add(key);
+function setLoadedName(name) {
+  const el = document.getElementById("loadedName");
+  if (el) el.textContent = name || "";
+}
+function toggleHelp() {
+    console.log(help)
+  help.style.display = help.style.display === "none" ? "block" : "none";
+}
 
-// 補光：從另一側把暗面提亮
-const fill = new THREE.DirectionalLight(0xffffff, 0.55);
-fill.position.set(-120, 60, -80);
-scene.add(fill);
+// -------------------------
+// 檔案選擇器：按 O 叫出來
+// -------------------------
+const fileInput = document.createElement("input");
+fileInput.type = "file";
+fileInput.accept = ".vox";
+fileInput.style.display = "none";
+document.body.appendChild(fileInput);
 
-/* ------------------------------
-  Model root group
------------------------------- */
-const johnGroup = new THREE.Group();
-johnGroup.name = 'AssetRoot';
-scene.add(johnGroup);
-
-/* ------------------------------
-  Selection: outline + slight brighten
------------------------------- */
+// -------------------------
+// 選取：Raycaster 點擊選取 + 高亮（描邊 + 微提亮）
+// -------------------------
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
+let selected = null;
 
-let selectedPartRoot = null;
+// 用 WeakMap 記錄「被提亮前」材質狀態，方便還原
+const backup = new WeakMap();
 
-// 用 WeakMap 存材質原狀，避免重複乘亮度造成越來越亮
-const matOrig = new WeakMap(); // material -> { color, emissive, emissiveIntensity }
-
-function getPartRoot(obj) {
-  // 把點到的 mesh 往上找，直到它的 parent 是 johnGroup（= 一個部件根）
+// 將點到的 mesh 往上找，直到它的 parent 是 assetRoot（把它當作一個部件）
+function partRoot(obj) {
   let o = obj;
-  while (o && o.parent && o.parent !== johnGroup) o = o.parent;
+  while (o && o.parent && o.parent !== assetRoot) o = o.parent;
   return o || obj;
 }
 
+// 微提亮：優先用 emissive（不破壞原本顏色）；沒有就用 color 乘一點點
 function setBright(obj, on) {
+  if (!obj) return;
+
   obj.traverse((n) => {
     if (!n.isMesh || !n.material) return;
+
     const mats = Array.isArray(n.material) ? n.material : [n.material];
 
     for (const m of mats) {
-      if (!matOrig.has(m)) {
-        matOrig.set(m, {
+      if (!backup.has(m)) {
+        backup.set(m, {
           color: m.color ? m.color.clone() : null,
           emissive: m.emissive ? m.emissive.clone() : null,
-          emissiveIntensity: typeof m.emissiveIntensity === 'number' ? m.emissiveIntensity : null
+          emissiveIntensity:
+            typeof m.emissiveIntensity === "number" ? m.emissiveIntensity : null,
         });
       }
 
-      const orig = matOrig.get(m);
+      const b = backup.get(m);
 
       if (on) {
-        // 優先用 emissive（比較像“被選取發亮”，不太破壞原色）
         if (m.emissive) {
-          m.emissive.setRGB(0.18, 0.22, 0.35);
-          if (typeof m.emissiveIntensity === 'number') m.emissiveIntensity = 1.0;
-        } else if (m.color) {
-          m.color.copy(orig.color).multiplyScalar(1.12);
+          // 淡淡加亮，不要像霓虹燈
+          m.emissive.setRGB(0.10, 0.12, 0.18);
+          if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 1.0;
+        } else if (m.color && b.color) {
+          m.color.copy(b.color).multiplyScalar(1.12);
         }
       } else {
-        // 還原
-        if (orig.emissive && m.emissive) m.emissive.copy(orig.emissive);
-        if (orig.emissiveIntensity !== null && typeof m.emissiveIntensity === 'number') {
-          m.emissiveIntensity = orig.emissiveIntensity;
+        if (b.color && m.color) m.color.copy(b.color);
+        if (b.emissive && m.emissive) m.emissive.copy(b.emissive);
+        if (
+          b.emissiveIntensity !== null &&
+          typeof m.emissiveIntensity === "number"
+        ) {
+          m.emissiveIntensity = b.emissiveIntensity;
         }
-        if (orig.color && m.color) m.color.copy(orig.color);
       }
     }
   });
 }
 
 function clearSelection() {
-  if (selectedPartRoot) setBright(selectedPartRoot, false);
-  selectedPartRoot = null;
-  outlinePass.selectedObjects = [];
-  tControls.detach();
+  if (selected) setBright(selected, false);
+  selected = null;
+  outline.selectedObjects = [];
+  gizmo.detach();
 }
 
-function setSelection(partRoot) {
-  if (selectedPartRoot === partRoot) return;
+function select(obj) {
+  if (selected === obj) return;
 
-  if (selectedPartRoot) setBright(selectedPartRoot, false);
+  if (selected) setBright(selected, false);
 
-  selectedPartRoot = partRoot || null;
+  selected = obj || null;
 
-  if (selectedPartRoot) {
-    setBright(selectedPartRoot, true);
-    outlinePass.selectedObjects = [selectedPartRoot];
-    tControls.attach(selectedPartRoot);
+  if (selected) {
+    setBright(selected, true);
+    outline.selectedObjects = [selected];
+    gizmo.attach(selected);
   } else {
-    outlinePass.selectedObjects = [];
-    tControls.detach();
+    outline.selectedObjects = [];
+    gizmo.detach();
   }
 }
 
-function pick(event) {
+// 左鍵點擊選取
+renderer.domElement.addEventListener("pointerdown", (e) => {
+    // 如果正在點 TransformControls 的 gizmo，就不要觸發「點空白=取消選取」
+  if (gizmo.dragging) return; // 正在拖曳時直接忽略（最安全）
+  if (gizmo.axis !== null) return; // 滑過 gizmo 時 axis 會變成 'X'/'Y'/'Z' 等
+
+  if (e.button !== 0) return;
+
   const rect = renderer.domElement.getBoundingClientRect();
-  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  mouse.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+  mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
 
   raycaster.setFromCamera(mouse, camera);
 
-  const hits = raycaster.intersectObjects(johnGroup.children, true);
-  if (hits.length > 0) {
-    const partRoot = getPartRoot(hits[0].object);
-    setSelection(partRoot);
-  } else {
-    setSelection(null);
-  }
-}
+  // 只對 assetRoot 底下物件做碰撞測試
+  const hits = raycaster.intersectObjects(assetRoot.children, true);
 
-renderer.domElement.addEventListener('pointerdown', (e) => {
-  // 左鍵才選取，避免右鍵 pan 時亂選
-  if (e.button !== 0) return;
-  // 拖 gizmo 的時候別做 pick（避免抖）
-  // TransformControls 沒有公開 dragging flag，這裡用 enabled/controls.enabled 的狀態側面避免干擾
-  pick(e);
+  if (hits.length) select(partRoot(hits[0].object));
+  else select(null);
 });
 
-/* ------------------------------
-  VOX loading (URL + File)
------------------------------- */
+// -------------------------
+// VOX 載入：URL / 本機檔
+// -------------------------
 const voxLoader = new VOXLoader();
 
-function fitAndFocus(object3d) {
-  const box = new THREE.Box3().setFromObject(object3d);
+// 置中、踩地、縮放，並更新 orbit target
+function fitToGroundAndScale(obj3d) {
+  // reset，避免多次載入累積偏移
+  obj3d.position.set(0, 0, 0);
+  obj3d.rotation.set(0, 0, 0);
+  obj3d.scale.set(1, 1, 1);
+
+  // bounding box：拿到中心與尺寸
+  const box = new THREE.Box3().setFromObject(obj3d);
   const size = new THREE.Vector3();
   const center = new THREE.Vector3();
   box.getSize(size);
   box.getCenter(center);
 
-  object3d.position.sub(center);
+  // 置中到 (0,0,0)
+  obj3d.position.sub(center);
 
-  // 踩地
-  const box2 = new THREE.Box3().setFromObject(object3d);
-  object3d.position.y -= box2.min.y;
+  // 踩地（底部對齊 y=0）
+  const box2 = new THREE.Box3().setFromObject(obj3d);
+  obj3d.position.y -= box2.min.y;
 
-  // 自動縮放（可改 target）
+  // 自動縮放：最大邊長縮到 TARGET_SIZE
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  const target = 60;
-  const s = target / maxDim;
-  object3d.scale.setScalar(s);
+  const s = TARGET_SIZE / maxDim;
+  obj3d.scale.setScalar(s);
 
-  // 更新 target
-  const box3 = new THREE.Box3().setFromObject(object3d);
+  // 更新 orbit target 到模型中心
+  const box3 = new THREE.Box3().setFromObject(obj3d);
   const c3 = new THREE.Vector3();
   box3.getCenter(c3);
-  controls.target.copy(c3);
-  controls.update();
+  orbit.target.copy(c3);
+  orbit.update();
 }
 
-function loadFromChunks(chunks, displayName = 'Loaded.vox') {
+// chunks => VOXMesh，放進 assetRoot
+function loadChunks(chunks, name) {
   clearSelection();
+  assetRoot.clear();
 
-  johnGroup.clear();
-  johnGroup.name = displayName;
-
-  chunks.forEach((chunk, idx) => {
+  chunks.forEach((chunk, i) => {
     const m = new VOXMesh(chunk);
-    m.name = chunk.name || `part_${idx}`;
-    johnGroup.add(m);
+    m.name = chunk.name || `part_${i}`;
+    assetRoot.add(m);
   });
 
-  fitAndFocus(johnGroup);
-
-  const label = document.getElementById('loadedName');
-  if (label) label.textContent = displayName;
+  fitToGroundAndScale(assetRoot);
+  setLoadedName(name || "Loaded.vox");
 }
 
-function loadVoxFromUrl(url, displayName) {
+function loadVoxUrl(url, name) {
   voxLoader.load(
     url,
-    (chunks) => loadFromChunks(chunks, displayName || url.split('/').pop()),
+    (chunks) => loadChunks(chunks, name || url.split("/").pop()),
     undefined,
     (err) => {
-      console.error('Failed to load VOX:', err);
-      alert('載入 VOX 失敗：請確認路徑與伺服器狀態');
+      console.error(err);
+      alert("載入 VOX 失敗：請確認檔案路徑與伺服器是否正常（不能用 file:// 直接開）");
     }
   );
 }
 
-async function loadVoxFromFile(file) {
+async function loadVoxFile(file) {
   const buf = await file.arrayBuffer();
   const chunks = voxLoader.parse(buf);
-  loadFromChunks(chunks, file.name);
+  loadChunks(chunks, file.name);
 }
 
 // 預設載入 John.vox
-loadVoxFromUrl('./John.vox', 'John.vox');
+loadVoxUrl(DEFAULT_VOX_URL, "John.vox");
 
-/* ------------------------------
-  Help toggle + Shortcuts
------------------------------- */
-const helpEl = document.getElementById('help');
-const voxFileEl = document.getElementById('voxFile');
-
-function toggleHelp() {
-  if (!helpEl) return;
-  helpEl.classList.toggle('collapsed');
-}
-
-window.addEventListener('keydown', (e) => {
-  // 如果你之後加 input UI，這段可以避免在輸入時觸發快捷鍵
-  const tag = (document.activeElement && document.activeElement.tagName) || '';
-  const isTyping = tag === 'INPUT' || tag === 'TEXTAREA';
-  if (isTyping) return;
-
-  if (e.key === 'w' || e.key === 'W') tControls.setMode('translate');
-  if (e.key === 'e' || e.key === 'E') tControls.setMode('rotate');
-  if (e.key === 'r' || e.key === 'R') tControls.setMode('scale');
-
-  if (e.key === 'Escape') clearSelection();
-
-  // Help
-  if (e.key === 'h' || e.key === 'H' || e.key === '?') toggleHelp();
-
-  // Open VOX
-  if (e.key === 'o' || e.key === 'O') {
-    voxFileEl?.click();
-  }
+// 本機開檔
+fileInput.addEventListener("change", async () => {
+  const f = fileInput.files && fileInput.files[0];
+  if (!f) return;
+  await loadVoxFile(f);
+  fileInput.value = "";
 });
 
-voxFileEl?.addEventListener('change', async () => {
-  const file = voxFileEl.files && voxFileEl.files[0];
-  if (!file) return;
-  await loadVoxFromFile(file);
-  voxFileEl.value = ''; // 允許再次選同一檔
+// -------------------------
+// 快捷鍵（先用鍵盤，不做視覺按鈕）
+// -------------------------
+window.addEventListener("keydown", (e) => {
+  // 避免在輸入框打字時誤觸
+  const tag = (document.activeElement && document.activeElement.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+  const k = e.key;
+
+  if (k === "w" || k === "W") gizmo.setMode("translate");
+  if (k === "e" || k === "E") gizmo.setMode("rotate");
+  if (k === "r" || k === "R") gizmo.setMode("scale");
+
+  if (k === "Escape") clearSelection();
+
+  if (k === "o" || k === "O") fileInput.click();
+
+  if (k === "h" || k === "H" || k === "?") toggleHelp();
 });
 
-/* ------------------------------
-  Render loop + Resize
------------------------------- */
+// -------------------------
+// Render loop（用 composer 才能看到 Outline）
+// -------------------------
 function animate() {
   requestAnimationFrame(animate);
-  controls.update();
+  orbit.update();
   composer.render();
 }
 animate();
 
-window.addEventListener('resize', () => {
+// -------------------------
+// Resize
+// -------------------------
+window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
 
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
-  outlinePass.setSize(window.innerWidth, window.innerHeight);
+  outline.setSize(window.innerWidth, window.innerHeight);
 });
